@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WA Bot — Tableau de bord</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside><a class="brand" href="/">w<span>•</span> / bot</a><div class="nav active">◉ &nbsp; Tableau de bord</div><div class="aside-bottom">TON ESPACE WHATSAPP<br><small>Une connexion. Tout en vue.</small></div></aside>
+<main><header><span>ESPACE PERSONNEL / VUE D’ENSEMBLE</span><span id="live">Actualisation en direct</span></header>
+<section class="intro"><div class="eyebrow">WHATSAPP, DEPUIS TON ORDINATEUR</div><h1>Le bot, à portée<br>de <em>main.</em></h1><p>Connecte ton compte et suis l’activité au même endroit.</p></section>
+<div class="grid"><section class="card connect"><div class="card-top"><h2>01 / Connexion</h2><span class="badge" id="status">En attente</span></div><div class="qr-box"><img id="qr" alt="QR code pour connecter WhatsApp" hidden><div id="qr-placeholder"><span class="qr-icon">▦</span><p id="qr-message">En attente du bot…</p></div></div><p class="hint">Dans WhatsApp : <strong>Appareils connectés → Connecter un appareil.</strong> Scanne le QR code qui s’affiche ici.</p></section>
+<div class="right"><section class="card"><div class="card-top"><h2>02 / Destination</h2><span class="tiny">CONFIGURATION</span></div><p>Le numéro qui recevra les médias récupérés.</p><form id="config"><label for="number">Numéro WhatsApp</label><div class="input-row"><input id="number" name="number" inputmode="numeric" autocomplete="tel" placeholder="226XXXXXXXX" pattern="[1-9][0-9]{7,14}" required><button id="save" type="submit">Enregistrer ↗</button></div><small>Indicatif pays inclus, sans + ni espace.</small><p id="feedback" role="status"></p></form></section>
+<section class="card guide"><span class="tiny">COMMENT ÇA MARCHE</span><h2>Une réponse déclenche<br>la tentative.</h2><p>Quand une réponse cite un média à vue unique, le bot tente de le télécharger et de le renvoyer à ta destination.</p><p class="hint">La récupération dépend des données fournies par WhatsApp et peut échouer.</p></section></div></div>
+<section class="card activity"><div class="card-top"><h2>03 / Activité récente</h2><span class="tiny">100 DERNIERS ÉVÉNEMENTS</span></div><div id="logs" role="log"><p class="empty">Les événements du bot apparaîtront ici.</p></div></section><footer>WA BOT <span>Ton QR code et ta session sont personnels.</span></footer>
+</main></body></html>

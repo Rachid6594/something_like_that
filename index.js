@@ -9,16 +9,19 @@ const {
 const qrcode = require('qrcode-terminal')
 const P = require('pino')
 const fs = require('fs')
+const storage = require('./storage')
 
-/**
- * ✅ PUT YOUR NUMBER HERE
- */
-const MY_JID = 'YOUR_NUMBER@s.whatsapp.net'
+// Recipient and connection status are managed by the web dashboard.
+const dashboard = require('./server')
+let MY_JID = dashboard.getRecipient()
+dashboard.onRecipientChange(number => { MY_JID = number })
+dashboard.listen()
 
 function log(text) {
   const line = `[${new Date().toISOString()}] ${text}`
   console.log(line)
-  fs.appendFileSync('bot.log', line + '\n')
+  dashboard.addLog(text)
+  fs.appendFileSync(storage.logPath, line + '\n')
 }
 
 async function streamToBuffer(stream) {
@@ -97,9 +100,10 @@ async function download(mediaObj) {
 }
 
 async function startBot() {
+  dashboard.setConnection('connecting')
   log('🚀 Starting')
 
-  const { state, saveCreds } = await useMultiFileAuthState('./auth')
+  const { state, saveCreds } = await useMultiFileAuthState(storage.authPath)
   const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
@@ -110,18 +114,30 @@ async function startBot() {
 
   sock.ev.on('connection.update', ({ connection, qr, lastDisconnect }) => {
     if (qr) {
+      dashboard.setQr(qr)
       log('📱 Scan QR')
-      qrcode.generate(qr, { small: true })
+      if (!process.env.RENDER) qrcode.generate(qr, { small: true })
     }
 
-    if (connection === 'open') log('✅ Connected')
+    if (connection === 'open') {
+      dashboard.setConnection('connected')
+      log('✅ Connected')
+    }
 
     if (connection === 'close') {
+      dashboard.setConnection('disconnected')
       const code = lastDisconnect?.error?.output?.statusCode
       log('❌ Closed: ' + code)
 
+      if (code === DisconnectReason.loggedOut) {
+        log('Session WhatsApp déconnectée. Réinitialise le dossier auth puis redémarre le bot pour obtenir un nouveau QR.')
+      }
+
       if (code !== DisconnectReason.loggedOut) {
-        startBot()
+        setTimeout(() => startBot().catch(err => {
+          dashboard.setConnection('error')
+          log(err.message)
+        }), 3000)
       }
     }
   })
@@ -147,6 +163,11 @@ async function startBot() {
 
         if (!isViewOnce(quoted)) {
           log('➡️ Not view-once')
+          continue
+        }
+
+        if (!MY_JID) {
+          log('Configure un numéro destinataire dans l’interface web.')
           continue
         }
 
@@ -194,4 +215,9 @@ async function startBot() {
   })
 }
 
-startBot()
+if (process.env.DEMO_MODE !== 'true') {
+  startBot().catch(err => {
+    dashboard.setConnection('error')
+    log(err.message)
+  })
+}

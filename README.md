@@ -19,7 +19,7 @@ Built with **Baileys** (`@whiskeysockets/baileys`).
 
 ## Requirements
 
-* Node.js 18+
+* Node.js 22 (hosting target; local verification also passed with Node.js 26)
 * npm
 
 ---
@@ -35,10 +35,14 @@ cd wa-bot
 npm install
 ```
 
-Open `index.js` and set your WhatsApp number:
+Open the web dashboard at `http://localhost:3000` after starting the bot and save your recipient number in the Destination panel.
+
+The dashboard displays the connection status, login QR code, and the last 100 events. You can preview the interface without connecting WhatsApp using `npm run preview`.
+
+The recipient can also be initialized through the `MY_NUMBER` environment variable:
 
 ```js
-const MY_JID = '11234567890@s.whatsapp.net'
+MY_NUMBER=11234567890
 ```
 
 Use your number in **international format** without spaces or symbols.
@@ -49,7 +53,7 @@ Start the bot:
 npm start
 ```
 
-On first launch a QR code will appear.
+On first launch a QR code will appear in the web dashboard and terminal.
 
 Open WhatsApp on your phone:
 
@@ -85,10 +89,10 @@ cd wa-bot
 
 npm init -y
 
-npm install @whiskeysockets/baileys pino qrcode-terminal
+npm install @whiskeysockets/baileys pino qrcode-terminal qrcode
 ```
 
-Create `index.js`, paste the bot code, configure your phone number, then run:
+Keep `index.js`, `server.js`, `storage.js` and the `public/` folder together, then run:
 
 ```bash
 node index.js
@@ -174,7 +178,17 @@ Example:
 
 # Configuration
 
-Edit the following value inside `index.js`:
+Configure the recipient through the web dashboard. Changes are saved locally in `config.json` and apply immediately. Keep this file and the `auth/` folder out of version control.
+
+For hosted use, set `ADMIN_PASSWORD` to protect the dashboard (username: `admin`). Without this variable, the server listens only on `127.0.0.1`. On Render, the application refuses to start without this password. The server uses `PORT`, or 3000 by default, and accepts the public origin supplied through `RENDER_EXTERNAL_URL`. For a custom domain or another reverse proxy, set `PUBLIC_ORIGIN` to the exact public HTTPS origin.
+
+This project has not yet been deployed to Render. WhatsApp authentication lives in `auth/` and recipient configuration in `config.json`; they must survive host restarts for a persistent session.
+
+The free Render deployment is prepared in `render.yaml`. Follow [DEPLOY_RENDER.md](DEPLOY_RENDER.md) to publish your own repository and create the service. On a free service, local session files are lost on restart. `DATA_DIR` can point to a persistent disk if you switch to a paid plan later.
+
+## Legacy configuration example
+
+The bot internally uses a WhatsApp JID in this format (the dashboard builds it automatically):
 
 ```js
 const MY_JID = 'YOUR_NUMBER@s.whatsapp.net'
