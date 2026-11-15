@@ -2,7 +2,7 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
-  downloadContentFromMessage,
+  downloadMediaMessage,
   DisconnectReason
 } = require('@whiskeysockets/baileys')
 
@@ -24,19 +24,21 @@ function log(text) {
   fs.appendFileSync(storage.logPath, line + '\n')
 }
 
-async function streamToBuffer(stream) {
-  const chunks = []
-  for await (const chunk of stream) chunks.push(chunk)
-  return Buffer.concat(chunks)
-}
-
 function getQuotedMessage(msg) {
   return msg?.extendedTextMessage?.contextInfo?.quotedMessage
 }
 
 function isViewOnce(msg) {
   if (!msg) return false
-  return JSON.stringify(msg).includes('viewOnce')
+  let current = msg
+  for (let i = 0; i < 10; i++) {
+    if (current?.viewOnceMessage || current?.viewOnceMessageV2 || current?.viewOnceMessageV2Extension) return true
+    const next = current?.ephemeralMessage?.message || current?.associatedChildMessage?.message
+    if (!next) break
+    current = next
+  }
+  const inner = deepUnwrap(msg)
+  return !!(inner?.imageMessage?.viewOnce || inner?.videoMessage?.viewOnce || inner?.audioMessage?.viewOnce)
 }
 
 /**
@@ -66,6 +68,16 @@ function deepUnwrap(msg) {
       continue
     }
 
+    if (m?.associatedChildMessage?.message) {
+      m = m.associatedChildMessage.message
+      continue
+    }
+
+    if (m?.documentWithCaptionMessage?.message) {
+      m = m.documentWithCaptionMessage.message
+      continue
+    }
+
     if (m?.message) {
       m = m.message
       continue
@@ -80,23 +92,12 @@ function deepUnwrap(msg) {
 function getMedia(msg) {
   if (!msg) return null
 
-  for (const key of Object.keys(msg)) {
-    if (key.endsWith('Message')) {
-      const media = msg[key]
-      if (media?.url || media?.directPath) {
-        return { key, media }
-      }
-    }
+  for (const key of ['imageMessage', 'videoMessage', 'audioMessage']) {
+    const media = msg[key]
+    if (media?.mediaKey) return { key, media }
   }
 
   return null
-}
-
-async function download(mediaObj) {
-  const { key, media } = mediaObj
-  const type = key.replace('Message', '')
-  const stream = await downloadContentFromMessage(media, type)
-  return await streamToBuffer(stream)
 }
 
 async function startBot() {
@@ -106,11 +107,65 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(storage.authPath)
   const { version } = await fetchLatestBaileysVersion()
 
+  const logger = P({ level: 'silent' })
   const sock = makeWASocket({
     version,
     auth: state,
-    logger: P({ level: 'silent' })
+    logger
   })
+
+  const sent = new Set()
+  const inFlight = new Set()
+
+  async function forwardViewOnce(msg) {
+    if (!msg?.message || !msg.key?.id || !isViewOnce(msg.message)) return false
+    const from = msg.key.remoteJid
+    if (!from || from === 'status@broadcast' || msg.key.fromMe) return false
+    const id = `${from}:${msg.key.id}`
+    if (sent.has(id) || inFlight.has(id)) return true
+
+    if (!MY_JID) {
+      log('Configure un numéro destinataire dans l’interface web.')
+      return true
+    }
+
+    let mediaObj = getMedia(deepUnwrap(msg.message))
+    if (!mediaObj) {
+      log('❌ Media not found: clé du média absente du message ' + msg.key.id)
+      return true
+    }
+
+    inFlight.add(id)
+    try {
+      log('📸 VIEW ONCE DETECTED ✅')
+      if (!mediaObj.media.url && !mediaObj.media.directPath) {
+        msg = await sock.updateMediaMessage(msg)
+        mediaObj = getMedia(deepUnwrap(msg.message))
+        if (!mediaObj?.media.url && !mediaObj?.media.directPath) {
+          throw new Error('WhatsApp n’a pas fourni de lien pour ce média.')
+        }
+      }
+      const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+        logger,
+        reuploadRequest: sock.updateMediaMessage
+      })
+      log('✅ Downloaded (' + buffer.length + ' bytes)')
+
+      if (mediaObj.key === 'imageMessage') {
+        await sock.sendMessage(MY_JID, { image: buffer, caption: 'Recovered ✅' })
+      } else if (mediaObj.key === 'videoMessage') {
+        await sock.sendMessage(MY_JID, { video: buffer, caption: 'Recovered ✅' })
+      } else {
+        await sock.sendMessage(MY_JID, { document: buffer, fileName: 'recovered.bin' })
+      }
+      sent.add(id)
+      if (sent.size > 1000) sent.delete(sent.values().next().value)
+      log('📤 Sent to self ✅')
+      return true
+    } finally {
+      inFlight.delete(id)
+    }
+  }
 
   sock.ev.on('connection.update', ({ connection, qr, lastDisconnect }) => {
     if (qr) {
@@ -152,10 +207,15 @@ async function startBot() {
 
     for (const msg of messages) {
       try {
-        if (!msg.message) continue
+        if (!msg.message) {
+          if (msg.key?.isViewOnce) log('Message view-once reçu sans contenu; attente de messages.update')
+          continue
+        }
 
         const from = msg.key.remoteJid
         log('📩 Message from ' + from)
+
+        if (await forwardViewOnce(msg)) continue
 
         const quoted = getQuotedMessage(msg.message)
 
@@ -166,48 +226,24 @@ async function startBot() {
           continue
         }
 
-        if (!MY_JID) {
-          log('Configure un numéro destinataire dans l’interface web.')
-          continue
-        }
+        const context = msg.message.extendedTextMessage.contextInfo
+        await forwardViewOnce({
+          key: { remoteJid: from, id: context.stanzaId, participant: context.participant, fromMe: false },
+          message: quoted
+        })
 
-        log('📸 VIEW ONCE DETECTED ✅')
+      } catch (err) {
+        log('❌ ' + err.message)
+      }
+    }
+  })
 
-        const inner = deepUnwrap(quoted)
-
-        const mediaObj = getMedia(inner)
-
-        if (!mediaObj) {
-          log('❌ Media not found')
-          continue
-        }
-
-        const buffer = await download(mediaObj)
-
-        log('✅ Downloaded (' + buffer.length + ' bytes)')
-
-        /**
-         * ✅ SEND ONLY TO YOU
-         */
-        if (mediaObj.key === 'imageMessage') {
-          await sock.sendMessage(MY_JID, {
-            image: buffer,
-            caption: 'Recovered ✅'
-          })
-        } else if (mediaObj.key === 'videoMessage') {
-          await sock.sendMessage(MY_JID, {
-            video: buffer,
-            caption: 'Recovered ✅'
-          })
-        } else {
-          await sock.sendMessage(MY_JID, {
-            document: buffer,
-            fileName: 'recovered.bin'
-          })
-        }
-
-        log('📤 Sent to self ✅')
-
+  // Linked devices can receive the media body after the initial upsert.
+  sock.ev.on('messages.update', async updates => {
+    for (const { key, update } of updates) {
+      if (!update?.message) continue
+      try {
+        await forwardViewOnce({ key, message: update.message })
       } catch (err) {
         log('❌ ' + err.message)
       }

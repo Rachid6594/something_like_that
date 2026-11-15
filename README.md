@@ -72,10 +72,10 @@ Scan the QR code and wait for:
 When someone sends a View Once photo or video:
 
 1. Do **not** open the media.
-2. Reply to the View Once message.
-3. The bot detects the quoted message.
-4. The media is downloaded.
-5. The recovered file is sent directly to your configured WhatsApp account.
+2. The bot reads the original message, including media that arrives through a later message update.
+3. The media is downloaded and sent directly to your configured WhatsApp account. No reply is required.
+
+Replying to a View Once message still works when WhatsApp includes the media data in the quote.
 
 ---
 
